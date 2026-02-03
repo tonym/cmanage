@@ -17,10 +17,10 @@ def test_submit_wraps_action_with_id_and_ts():
     action = _action("alpha", payload={"x": 1}, meta={"source": "test"})
     env = inbox.submit(action)
 
-    assert env.id
-    assert env.ts.endswith("+00:00")
-    assert env.action == action
-    assert env.action is not action
+    assert env["id"]
+    assert env["ts"].endswith("+00:00")
+    assert env["action"] == action
+    assert env["action"] is not action
 
 
 def test_list_with_cursor_and_limit_is_deterministic():
@@ -37,7 +37,7 @@ def test_list_with_cursor_and_limit_is_deterministic():
     assert len(third["items"]) == 1
 
     repeat_first = inbox.list(limit=2)
-    assert [e.id for e in repeat_first["items"]] == [e.id for e in first["items"]]
+    assert [e["id"] for e in repeat_first["items"]] == [e["id"] for e in first["items"]]
 
 
 def test_multiple_orchestrators_can_read_independently():
@@ -56,8 +56,8 @@ def test_multiple_orchestrators_can_read_independently():
     page_a2 = inbox.list(cursor=cursor_a, limit=2)
     page_b2 = inbox.list(cursor=cursor_b, limit=2)
 
-    a_ids = [e.id for e in page_a1["items"] + page_a2["items"]]
-    b_ids = [e.id for e in page_b1["items"] + page_b2["items"]]
+    a_ids = [e["id"] for e in page_a1["items"] + page_a2["items"]]
+    b_ids = [e["id"] for e in page_b1["items"] + page_b2["items"]]
 
     assert a_ids == b_ids
 

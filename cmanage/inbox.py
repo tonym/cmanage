@@ -26,7 +26,7 @@ class CManageInbox:
         self._items: List[ActionEnvelope] = []
         self._by_id: Dict[str, ActionEnvelope] = {}
 
-    def submit(self, action: Action) -> ActionEnvelope:
+    def submit(self, action: Action) -> Dict[str, Any]:
         """Accept an action and return an envelope with id + ts."""
         self._validate_action(action)
         action_copy = copy.deepcopy(action)
@@ -37,7 +37,7 @@ class CManageInbox:
         )
         self._items.append(envelope)
         self._by_id[envelope.id] = envelope
-        return envelope
+        return _envelope_to_dict(envelope)
 
     def list(
         self,
@@ -54,11 +54,12 @@ class CManageInbox:
         ordered = sorted(self._items, key=_order_key)
         items = _slice_after_cursor(ordered, start_key, limit)
         next_cursor = _encode_cursor_from_last(items) if items else None
-        return {"items": items, "nextCursor": next_cursor}
+        return {"items": [_envelope_to_dict(item) for item in items], "nextCursor": next_cursor}
 
-    def get(self, envelope_id: str) -> Optional[ActionEnvelope]:
+    def get(self, envelope_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve an envelope by id if present."""
-        return self._by_id.get(envelope_id)
+        env = self._by_id.get(envelope_id)
+        return _envelope_to_dict(env) if env is not None else None
 
     @staticmethod
     def _validate_action(action: Action) -> None:
@@ -121,3 +122,11 @@ def _slice_after_cursor(
         if limit is not None and len(result) >= limit:
             break
     return result
+
+
+def _envelope_to_dict(envelope: ActionEnvelope) -> Dict[str, Any]:
+    return {
+        "id": envelope.id,
+        "ts": envelope.ts,
+        "action": copy.deepcopy(envelope.action),
+    }

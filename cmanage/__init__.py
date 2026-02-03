@@ -1,5 +1,5 @@
 """CManage Phase 1 (Gate B) in-memory action inbox."""
 
-from .inbox import ActionEnvelope, CManageInbox
+from .inbox import CManageInbox
 
-__all__ = ["ActionEnvelope", "CManageInbox"]
+__all__ = ["CManageInbox"]

@@ -6,7 +6,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 Action = Dict[str, Any]
@@ -47,13 +47,13 @@ class CManageInbox:
         """
         List items strictly after the cursor.
 
-        cursor: opaque string encoding (ts, id). None starts from the beginning.
+        cursor: opaque string encoding (submission index). None starts from the beginning.
         limit: max number of items returned; None returns all remaining.
         """
-        start_key = _decode_cursor(cursor) if cursor is not None else None
-        ordered = sorted(self._items, key=_order_key)
-        items = _slice_after_cursor(ordered, start_key, limit)
-        next_cursor = _encode_cursor_from_last(items) if items else None
+        start_index = _decode_cursor(cursor) + 1 if cursor is not None else 0
+        end_index = start_index + limit if limit is not None else None
+        items = self._items[start_index:end_index]
+        next_cursor = _encode_cursor(start_index + len(items) - 1) if items else None
         return {"items": [_envelope_to_dict(item) for item in items], "nextCursor": next_cursor}
 
     def get(self, envelope_id: str) -> Optional[Dict[str, Any]]:
@@ -78,50 +78,21 @@ def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _order_key(env: ActionEnvelope) -> Tuple[str, str]:
-    return (env.ts, env.id)
-
-
-def _encode_cursor(ts: str, env_id: str) -> str:
-    payload = json.dumps({"ts": ts, "id": env_id}, separators=(",", ":"), sort_keys=True)
+def _encode_cursor(index: int) -> str:
+    payload = json.dumps({"i": index}, separators=(",", ":"), sort_keys=True)
     return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
 
 
-def _decode_cursor(cursor: str) -> Tuple[str, str]:
+def _decode_cursor(cursor: str) -> int:
     try:
         raw = base64.urlsafe_b64decode(cursor.encode("ascii"))
         data = json.loads(raw.decode("utf-8"))
-        ts = data["ts"]
-        env_id = data["id"]
-        if not isinstance(ts, str) or not isinstance(env_id, str):
+        index = data["i"]
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
             raise ValueError
-        return ts, env_id
+        return index
     except Exception as exc:
         raise ValueError("invalid cursor") from exc
-
-
-def _encode_cursor_from_last(items: Iterable[ActionEnvelope]) -> str:
-    last = None
-    for last in items:
-        pass
-    if last is None:
-        raise ValueError("cannot encode cursor from empty items")
-    return _encode_cursor(last.ts, last.id)
-
-
-def _slice_after_cursor(
-    ordered: List[ActionEnvelope],
-    start_key: Optional[Tuple[str, str]],
-    limit: Optional[int],
-) -> List[ActionEnvelope]:
-    result: List[ActionEnvelope] = []
-    for env in ordered:
-        if start_key is not None and _order_key(env) <= start_key:
-            continue
-        result.append(env)
-        if limit is not None and len(result) >= limit:
-            break
-    return result
 
 
 def _envelope_to_dict(envelope: ActionEnvelope) -> Dict[str, Any]:

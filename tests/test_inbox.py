@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from cmanage import CManageInbox
 
 
@@ -25,8 +27,7 @@ def test_submit_wraps_action_with_id_and_ts():
 
 def test_list_with_cursor_and_limit_is_deterministic():
     inbox = CManageInbox()
-    for i in range(5):
-        inbox.submit(_action(f"t{i}"))
+    submitted_ids = [inbox.submit(_action(f"t{i}"))["id"] for i in range(5)]
 
     first = inbox.list(limit=2)
     second = inbox.list(cursor=first["nextCursor"], limit=2)
@@ -36,14 +37,17 @@ def test_list_with_cursor_and_limit_is_deterministic():
     assert len(second["items"]) == 2
     assert len(third["items"]) == 1
 
+    assert [e["id"] for e in first["items"]] == submitted_ids[0:2]
+    assert [e["id"] for e in second["items"]] == submitted_ids[2:4]
+    assert [e["id"] for e in third["items"]] == submitted_ids[4:5]
+
     repeat_first = inbox.list(limit=2)
-    assert [e["id"] for e in repeat_first["items"]] == [e["id"] for e in first["items"]]
+    assert [e["id"] for e in repeat_first["items"]] == submitted_ids[0:2]
 
 
 def test_multiple_orchestrators_can_read_independently():
     inbox = CManageInbox()
-    for t in ["a", "b", "c"]:
-        inbox.submit(_action(t))
+    submitted_ids = [inbox.submit(_action(t))["id"] for t in ["a", "b", "c"]]
 
     cursor_a = None
     cursor_b = None
@@ -59,7 +63,15 @@ def test_multiple_orchestrators_can_read_independently():
     a_ids = [e["id"] for e in page_a1["items"] + page_a2["items"]]
     b_ids = [e["id"] for e in page_b1["items"] + page_b2["items"]]
 
-    assert a_ids == b_ids
+    assert a_ids == submitted_ids
+    assert b_ids == submitted_ids
+
+
+def test_invalid_cursor_raises_value_error():
+    inbox = CManageInbox()
+    inbox.submit(_action("alpha"))
+    with pytest.raises(ValueError, match="invalid cursor"):
+        inbox.list(cursor="not-a-valid-cursor")
 
 
 def test_new_inbox_has_no_persistence():

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import queue
 import time
 
 import pytest
@@ -87,38 +87,49 @@ def test_new_inbox_has_no_persistence():
     assert listed["nextCursor"] is None
 
 
-def _read_observations(path, expected_count, timeout=1.0):
+def _read_observations(q, expected_count, timeout=1.0):
     deadline = time.monotonic() + timeout
+    items = []
     while time.monotonic() < deadline:
-        if path.exists():
-            lines = path.read_text().splitlines()
-            if len(lines) >= expected_count:
-                return [json.loads(line) for line in lines]
-        time.sleep(0.01)
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text().splitlines()]
+        try:
+            items.append(q.get(timeout=0.01))
+            if len(items) >= expected_count:
+                return items
+        except queue.Empty:
+            time.sleep(0.01)
+    return items
 
 
-def test_emit_is_optional(tmp_path):
-    target = tmp_path / "observations.jsonl"
-    inbox = CManageInbox()
+def _capture_transport():
+    q = queue.Queue()
+
+    def transport(target, observation):
+        q.put((target, observation))
+
+    return q, transport
+
+
+def test_emit_is_optional():
+    q, transport = _capture_transport()
+    inbox = CManageInbox(emit_transport=transport)
     inbox.submit(_action("alpha"))
-    assert not target.exists()
+    observations = _read_observations(q, expected_count=1, timeout=0.1)
+    assert observations == []
 
 
-def test_emit_on_submit_and_claim(tmp_path):
-    target = tmp_path / "observations.jsonl"
-    inbox = CManageInbox(emit_target=str(target))
+def test_emit_on_submit_and_claim():
+    q, transport = _capture_transport()
+    inbox = CManageInbox(emit_target="TargetName", emit_transport=transport)
     env = inbox.submit(_action("alpha", payload={"x": 1}))
     claimed = inbox.claim(env["id"])
 
     assert claimed is not None
 
-    observations = _read_observations(target, expected_count=2)
+    observations = _read_observations(q, expected_count=2)
     assert len(observations) == 2
-    assert {obs["event"] for obs in observations} == {"intent.offered", "intent.claimed"}
-    assert all(obs["envelope"]["id"] == env["id"] for obs in observations)
+    assert {obs[1]["event"] for obs in observations} == {"intent.offered", "intent.claimed"}
+    assert all(obs[0] == "TargetName" for obs in observations)
+    assert all(obs[1]["envelope"]["id"] == env["id"] for obs in observations)
 
 
 def test_parse_emit_target():

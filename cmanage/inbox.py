@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from .emission import ObservationEmitter, build_observation
+from .emission import EmitTransport, ObservationEmitter, build_observation
 
 
 Action = Dict[str, Any]
@@ -24,10 +24,17 @@ class ActionEnvelope:
 class CManageInbox:
     """In-memory, append-only action inbox with cursor-based listing."""
 
-    def __init__(self, emit_target: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        emit_target: Optional[str] = None,
+        emit_transport: Optional[EmitTransport] = None,
+    ) -> None:
         self._items: List[ActionEnvelope] = []
         self._by_id: Dict[str, ActionEnvelope] = {}
-        self._emitter = ObservationEmitter(emit_target) if emit_target else None
+        if emit_target and emit_transport:
+            self._emitter = ObservationEmitter(emit_target, emit_transport)
+        else:
+            self._emitter = None
 
     def submit(self, action: Action) -> Dict[str, Any]:
         """Accept an action and return an envelope with id + ts."""

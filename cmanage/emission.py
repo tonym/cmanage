@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 import copy
-import json
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 
 Observation = Dict[str, Any]
+EmitTransport = Callable[[str, Observation], None]
 
 
 class ObservationEmitter:
     """Best-effort, fire-and-forget observation emitter."""
 
-    def __init__(self, target: str) -> None:
+    def __init__(self, target: str, transport: EmitTransport) -> None:
         self._target = target
+        self._transport = transport
 
     def emit(self, observation: Observation) -> None:
         thread = threading.Thread(
             target=_emit_observation,
-            args=(self._target, observation),
+            args=(self._transport, self._target, observation),
             daemon=True,
         )
         thread.start()
@@ -40,10 +41,12 @@ def build_observation(
     return payload
 
 
-def _emit_observation(target: str, observation: Observation) -> None:
+def _emit_observation(
+    transport: EmitTransport,
+    target: str,
+    observation: Observation,
+) -> None:
     try:
-        payload = json.dumps(observation, separators=(",", ":"), sort_keys=True)
-        with open(target, "a", encoding="utf-8") as handle:
-            handle.write(payload + "\n")
+        transport(target, observation)
     except Exception:
         pass

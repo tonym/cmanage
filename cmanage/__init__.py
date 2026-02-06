@@ -1,5 +1,5 @@
-"""CManage Phase 1 (Gate B) in-memory action inbox."""
+"""CManage Phase 3 in-memory action inbox with optional observation emission."""
 
-from .inbox import CManageInbox
+from .inbox import CManageInbox, parse_emit_target
 
-__all__ = ["CManageInbox"]
+__all__ = ["CManageInbox", "parse_emit_target"]

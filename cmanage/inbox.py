@@ -6,7 +6,9 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
+
+from .emission import ObservationEmitter, build_observation
 
 
 Action = Dict[str, Any]
@@ -22,9 +24,10 @@ class ActionEnvelope:
 class CManageInbox:
     """In-memory, append-only action inbox with cursor-based listing."""
 
-    def __init__(self) -> None:
+    def __init__(self, emit_target: Optional[str] = None) -> None:
         self._items: List[ActionEnvelope] = []
         self._by_id: Dict[str, ActionEnvelope] = {}
+        self._emitter = ObservationEmitter(emit_target) if emit_target else None
 
     def submit(self, action: Action) -> Dict[str, Any]:
         """Accept an action and return an envelope with id + ts."""
@@ -37,7 +40,9 @@ class CManageInbox:
         )
         self._items.append(envelope)
         self._by_id[envelope.id] = envelope
-        return _envelope_to_dict(envelope)
+        envelope_dict = _envelope_to_dict(envelope)
+        self._emit_observation("intent.offered", envelope_dict)
+        return envelope_dict
 
     def list(
         self,
@@ -61,6 +66,29 @@ class CManageInbox:
         env = self._by_id.get(envelope_id)
         return _envelope_to_dict(env) if env is not None else None
 
+    def claim(self, envelope_id: str) -> Optional[Dict[str, Any]]:
+        """Emit a claim observation for an envelope if present."""
+        env = self._by_id.get(envelope_id)
+        if env is None:
+            return None
+        envelope_dict = _envelope_to_dict(env)
+        self._emit_observation("intent.claimed", envelope_dict)
+        return envelope_dict
+
+    def _emit_observation(
+        self,
+        event: str,
+        envelope: Dict[str, Any],
+        claim: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if self._emitter is None:
+            return
+        try:
+            observation = build_observation(event, envelope, _utc_iso_now(), claim=claim)
+            self._emitter.emit(observation)
+        except Exception:
+            pass
+
     @staticmethod
     def _validate_action(action: Action) -> None:
         if not isinstance(action, dict):
@@ -72,6 +100,29 @@ class CManageInbox:
             raise TypeError("action.payload must be a dict if provided")
         if "meta" in action and not isinstance(action["meta"], dict):
             raise TypeError("action.meta must be a dict if provided")
+
+
+def parse_emit_target(argv: Sequence[str]) -> Optional[str]:
+    """
+    Parse a required --emit <target> flag from argv.
+
+    Returns the target string if provided, otherwise None.
+    """
+    emit_targets = []
+    idx = 0
+    while idx < len(argv):
+        if argv[idx] == "--emit":
+            if idx + 1 >= len(argv):
+                raise ValueError("--emit requires a target")
+            emit_targets.append(argv[idx + 1])
+            idx += 2
+            continue
+        idx += 1
+    if not emit_targets:
+        return None
+    if len(emit_targets) > 1:
+        raise ValueError("multiple --emit targets are not allowed")
+    return emit_targets[0]
 
 
 def _utc_iso_now() -> str:

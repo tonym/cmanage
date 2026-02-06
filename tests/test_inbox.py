@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+import time
+
 import pytest
 
-from cmanage import CManageInbox
+from cmanage import CManageInbox, parse_emit_target
 
 
 def _action(t, payload=None, meta=None):
@@ -82,3 +85,46 @@ def test_new_inbox_has_no_persistence():
     listed = fresh.list()
     assert listed["items"] == []
     assert listed["nextCursor"] is None
+
+
+def _read_observations(path, expected_count, timeout=1.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            lines = path.read_text().splitlines()
+            if len(lines) >= expected_count:
+                return [json.loads(line) for line in lines]
+        time.sleep(0.01)
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_emit_is_optional(tmp_path):
+    target = tmp_path / "observations.jsonl"
+    inbox = CManageInbox()
+    inbox.submit(_action("alpha"))
+    assert not target.exists()
+
+
+def test_emit_on_submit_and_claim(tmp_path):
+    target = tmp_path / "observations.jsonl"
+    inbox = CManageInbox(emit_target=str(target))
+    env = inbox.submit(_action("alpha", payload={"x": 1}))
+    claimed = inbox.claim(env["id"])
+
+    assert claimed is not None
+
+    observations = _read_observations(target, expected_count=2)
+    assert len(observations) == 2
+    assert {obs["event"] for obs in observations} == {"intent.offered", "intent.claimed"}
+    assert all(obs["envelope"]["id"] == env["id"] for obs in observations)
+
+
+def test_parse_emit_target():
+    assert parse_emit_target(["--emit", "target-path"]) == "target-path"
+    assert parse_emit_target(["--other", "x"]) is None
+    with pytest.raises(ValueError, match="--emit requires a target"):
+        parse_emit_target(["--emit"])
+    with pytest.raises(ValueError, match="multiple --emit targets"):
+        parse_emit_target(["--emit", "a", "--emit", "b"])

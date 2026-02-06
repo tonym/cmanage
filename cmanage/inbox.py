@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from .emission import EmitTransport, ObservationEmitter, build_observation
+from .emission import EmitTransport, ObservationEmitter, build_observation, missing_transport
 
 
 Action = Dict[str, Any]
@@ -31,8 +31,11 @@ class CManageInbox:
     ) -> None:
         self._items: List[ActionEnvelope] = []
         self._by_id: Dict[str, ActionEnvelope] = {}
-        if emit_target and emit_transport:
-            self._emitter = ObservationEmitter(emit_target, emit_transport)
+        if emit_target:
+            self._emitter = ObservationEmitter(
+                emit_target,
+                emit_transport or missing_transport,
+            )
         else:
             self._emitter = None
 

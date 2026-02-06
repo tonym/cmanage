@@ -41,6 +41,10 @@ def build_observation(
     return payload
 
 
+def missing_transport(_: str, __: Observation) -> None:
+    raise RuntimeError("emit transport not configured")
+
+
 def _emit_observation(
     transport: EmitTransport,
     target: str,

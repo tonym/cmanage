@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import queue
+import time
+
 import pytest
 
-from cmanage import CManageInbox
+from cmanage import CManageInbox, parse_emit_target
 
 
 def _action(t, payload=None, meta=None):
@@ -82,3 +85,57 @@ def test_new_inbox_has_no_persistence():
     listed = fresh.list()
     assert listed["items"] == []
     assert listed["nextCursor"] is None
+
+
+def _read_observations(q, expected_count, timeout=1.0):
+    deadline = time.monotonic() + timeout
+    items = []
+    while time.monotonic() < deadline:
+        try:
+            items.append(q.get(timeout=0.01))
+            if len(items) >= expected_count:
+                return items
+        except queue.Empty:
+            time.sleep(0.01)
+    return items
+
+
+def _capture_transport():
+    q = queue.Queue()
+
+    def transport(target, observation):
+        q.put((target, observation))
+
+    return q, transport
+
+
+def test_emit_is_optional():
+    q, transport = _capture_transport()
+    inbox = CManageInbox(emit_transport=transport)
+    inbox.submit(_action("alpha"))
+    observations = _read_observations(q, expected_count=1, timeout=0.1)
+    assert observations == []
+
+
+def test_emit_on_submit_and_claim():
+    q, transport = _capture_transport()
+    inbox = CManageInbox(emit_target="TargetName", emit_transport=transport)
+    env = inbox.submit(_action("alpha", payload={"x": 1}))
+    claimed = inbox.claim(env["id"])
+
+    assert claimed is not None
+
+    observations = _read_observations(q, expected_count=2)
+    assert len(observations) == 2
+    assert {obs[1]["event"] for obs in observations} == {"intent.offered", "intent.claimed"}
+    assert all(obs[0] == "TargetName" for obs in observations)
+    assert all(obs[1]["envelope"]["id"] == env["id"] for obs in observations)
+
+
+def test_parse_emit_target():
+    assert parse_emit_target(["--emit", "target-path"]) == "target-path"
+    assert parse_emit_target(["--other", "x"]) is None
+    with pytest.raises(ValueError, match="--emit requires a target"):
+        parse_emit_target(["--emit"])
+    with pytest.raises(ValueError, match="multiple --emit targets"):
+        parse_emit_target(["--emit", "a", "--emit", "b"])
